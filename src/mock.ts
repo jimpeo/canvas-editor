@@ -103,6 +103,7 @@ elementList.splice(12, 0, {
   type: ElementType.CONTROL,
   value: '',
   control: {
+    conceptId: '1',
     type: ControlType.TEXT,
     value: null,
     placeholder: '其他补充',
@@ -116,6 +117,7 @@ elementList.splice(94, 0, {
   type: ElementType.CONTROL,
   value: '',
   control: {
+    conceptId: '2',
     type: ControlType.SELECT,
     value: null,
     code: null,
@@ -337,6 +339,7 @@ elementList.push(
     {
       type: ElementType.CONTROL,
       control: {
+        conceptId: '3',
         type: ControlType.CHECKBOX,
         code: '98175',
         value: '',
@@ -396,9 +399,35 @@ elementList.push(
   ])
 )
 
+// 模拟固定长度下划线
+elementList.push(
+  ...[
+    {
+      value: '患者签名：'
+    },
+    {
+      type: ElementType.CONTROL,
+      value: '',
+      control: {
+        conceptId: '4',
+        type: ControlType.TEXT,
+        value: null,
+        placeholder: '',
+        prefix: '\u200c',
+        postfix: '\u200c',
+        minWidth: 160,
+        underline: true
+      }
+    }
+  ]
+)
+
 // 模拟结尾文本
 elementList.push(
   ...[
+    {
+      value: '\n'
+    },
     {
       value: '',
       type: ElementType.TAB

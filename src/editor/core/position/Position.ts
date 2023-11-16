@@ -74,6 +74,13 @@ export class Position {
     return this.positionList
   }
 
+  public getSelectionPositionList(): IElementPosition[] | null {
+    const { startIndex, endIndex } = this.draw.getRange().getRange()
+    if (startIndex === endIndex) return null
+    const positionList = this.getPositionList()
+    return positionList.slice(startIndex + 1, endIndex + 1)
+  }
+
   public setPositionList(payload: IElementPosition[]) {
     this.positionList = payload
   }
@@ -119,6 +126,10 @@ export class Position {
           element.type === ElementType.LATEX
             ? curRow.ascent - metrics.height
             : curRow.ascent
+        // 偏移量
+        if (element.left) {
+          x += element.left
+        }
         const positionItem: IElementPosition = {
           pageNo,
           index,
@@ -126,6 +137,7 @@ export class Position {
           rowIndex: startRowIndex + i,
           rowNo: i,
           metrics,
+          left: element.left || 0,
           ascent: offsetY,
           lineHeight: curRow.height,
           isFirstLetter: j === 0,
@@ -142,7 +154,8 @@ export class Position {
         x += metrics.width
         // 计算表格内元素位置
         if (element.type === ElementType.TABLE) {
-          const tdGap = tdPadding * 2
+          const tdPaddingWidth = tdPadding[1] + tdPadding[3]
+          const tdPaddingHeight = tdPadding[0] + tdPadding[2]
           for (let t = 0; t < element.trList!.length; t++) {
             const tr = element.trList![t]
             for (let d = 0; d < tr.tdList!.length; d++) {
@@ -155,9 +168,9 @@ export class Position {
                 pageNo,
                 startRowIndex: 0,
                 startIndex: 0,
-                startX: (td.x! + tdPadding) * scale + tablePreX,
-                startY: td.y! * scale + tablePreY,
-                innerWidth: (td.width! - tdGap) * scale
+                startX: (td.x! + tdPadding[3]) * scale + tablePreX,
+                startY: (td.y! + tdPadding[0]) * scale + tablePreY,
+                innerWidth: (td.width! - tdPaddingWidth) * scale
               })
               // 垂直对齐方式
               if (
@@ -168,7 +181,8 @@ export class Position {
                   (pre, cur) => pre + cur.height,
                   0
                 )
-                const blankHeight = (td.height! - tdGap) * scale - rowsHeight
+                const blankHeight =
+                  (td.height! - tdPaddingHeight) * scale - rowsHeight
                 const offsetHeight =
                   td.verticalAlign === VerticalAlign.MIDDLE
                     ? blankHeight / 2
@@ -263,13 +277,14 @@ export class Position {
       const {
         index,
         pageNo,
+        left,
         isFirstLetter,
         coordinate: { leftTop, rightTop, leftBottom }
       } = positionList[j]
       if (positionNo !== pageNo) continue
       // 命中元素
       if (
-        leftTop[0] <= x &&
+        leftTop[0] - left <= x &&
         rightTop[0] >= x &&
         leftTop[1] <= y &&
         leftBottom[1] >= y
@@ -300,7 +315,7 @@ export class Position {
                     tdValueElement.type === ElementType.CHECKBOX ||
                     tdValueElement.controlComponent ===
                       ControlComponent.CHECKBOX,
-                  isControl: tdValueElement.type === ElementType.CONTROL,
+                  isControl: !!tdValueElement.controlId,
                   isImage: tablePosition.isImage,
                   isDirectHit: tablePosition.isDirectHit,
                   isTable: true,
@@ -351,7 +366,7 @@ export class Position {
         return {
           hitLineStartIndex,
           index: curPositionIndex,
-          isControl: element.type === ElementType.CONTROL
+          isControl: !!element.controlId
         }
       }
     }
@@ -456,7 +471,7 @@ export class Position {
     return {
       hitLineStartIndex,
       index: curPositionIndex,
-      isControl: elementList[curPositionIndex]?.type === ElementType.CONTROL
+      isControl: !!elementList[curPositionIndex]?.controlId
     }
   }
 

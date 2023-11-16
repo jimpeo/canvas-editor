@@ -275,7 +275,7 @@ export class RangeManager {
     if (~startIndex && ~endIndex) {
       const elementList = this.draw.getElementList()
       const element = elementList[startIndex]
-      if (element?.type === ElementType.CONTROL) {
+      if (element?.controlId) {
         control.initControl()
         return
       }
@@ -325,7 +325,9 @@ export class RangeManager {
     const size = curElement.size || this.options.defaultSize
     const bold = !~curElementList.findIndex(el => !el.bold)
     const italic = !~curElementList.findIndex(el => !el.italic)
-    const underline = !~curElementList.findIndex(el => !el.underline)
+    const underline = !~curElementList.findIndex(
+      el => !el.underline && !el.control?.underline
+    )
     const strikeout = !~curElementList.findIndex(el => !el.strikeout)
     const color = curElement.color || null
     const highlight = curElement.highlight || null
@@ -414,6 +416,7 @@ export class RangeManager {
     const elementList = this.draw.getElementList()
     const range = this.getRange()
     const { startIndex, endIndex } = range
+    if (!~startIndex && !~endIndex) return
     const startElement = elementList[startIndex]
     const endElement = elementList[endIndex]
     if (startIndex === endIndex) {

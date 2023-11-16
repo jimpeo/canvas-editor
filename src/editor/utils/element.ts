@@ -14,6 +14,7 @@ import {
   EDITOR_ELEMENT_ZIP_ATTR,
   INLINE_NODE_NAME,
   TABLE_CONTEXT_ATTR,
+  TABLE_TD_ZIP_ATTR,
   TEXTLIKE_ELEMENT_TYPE
 } from '../dataset/constant/Element'
 import {
@@ -483,12 +484,13 @@ export function zipElementList(payload: IElement[]): IElement[] {
               rowspan: td.rowspan,
               value: zipElementList(td.value)
             }
-            if (td.verticalAlign) {
-              zipTd.verticalAlign = td.verticalAlign
-            }
-            if (td.backgroundColor) {
-              zipTd.backgroundColor = td.backgroundColor
-            }
+            // 压缩单元格属性
+            TABLE_TD_ZIP_ATTR.forEach(attr => {
+              const value = td[attr] as never
+              if (value !== undefined) {
+                zipTd[attr] = value
+              }
+            })
             tr.tdList[d] = zipTd
           }
         }
@@ -536,7 +538,7 @@ export function zipElementList(payload: IElement[]): IElement[] {
       }
       dateElement.valueList = zipElementList(valueList)
       element = dateElement
-    } else if (element.type === ElementType.CONTROL) {
+    } else if (element.controlId) {
       // 控件处理
       const controlId = element.controlId
       const control = element.control!
@@ -553,8 +555,8 @@ export function zipElementList(payload: IElement[]): IElement[] {
           break
         }
         if (controlE.controlComponent === ControlComponent.VALUE) {
-          delete controlE.type
           delete controlE.control
+          delete controlE.controlId
           valueList.push(controlE)
         }
         e++
@@ -835,19 +837,29 @@ export function createDomFromElementList(
         TEXTLIKE_ELEMENT_TYPE.includes(element.type)
       ) {
         let text = ''
-        if (element.type === ElementType.CONTROL) {
-          text = element.control!.value?.[0]?.value || ''
+        if (element.controlId) {
+          text =
+            element
+              .control!.value?.filter(
+                v => !v.type || TEXTLIKE_ELEMENT_TYPE.includes(v.type)
+              )
+              .map(v => v.value)
+              .join('') || ''
         } else if (element.type === ElementType.DATE) {
           text = element.valueList?.map(v => v.value).join('') || ''
         } else {
           text = element.value
         }
         if (!text) continue
+        const dom = convertElementToDom(element, options)
         // 前一个元素是标题，移除首行换行符
         if (payload[e - 1]?.type === ElementType.TITLE) {
           text = text.replace(/^\n/, '')
         }
-        const dom = convertElementToDom(element, options)
+        // 块元素移除尾部换行符
+        if (dom.tagName === 'P') {
+          text = text.replace(/\n$/, '')
+        }
         dom.innerText = text.replace(new RegExp(`${ZERO}`, 'g'), '\n')
         clipboardDom.append(dom)
       }

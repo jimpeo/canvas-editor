@@ -2,17 +2,22 @@ import { ControlComponent, ControlType } from '../../../dataset/enum/Control'
 import { ElementType } from '../../../dataset/enum/Element'
 import {
   IControl,
+  IControlContext,
   IControlInitOption,
   IControlInstance,
-  IControlOption
+  IControlOption,
+  IGetControlValueOption,
+  IGetControlValueResult,
+  ISetControlExtensionOption,
+  ISetControlValueOption
 } from '../../../interface/Control'
-import { IEditorData } from '../../../interface/Editor'
 import { IElement, IElementPosition } from '../../../interface/Element'
 import { EventBusMap } from '../../../interface/EventBus'
 import { IRange } from '../../../interface/Range'
 import { deepClone, nextTick, splitText } from '../../../utils'
 import {
   formatElementContext,
+  formatElementList,
   pickElementAttr,
   zipElementList
 } from '../../../utils/element'
@@ -51,21 +56,27 @@ export class Control {
   }
 
   // 过滤控件辅助元素（前后缀、背景提示）
-  public filterAssistElement(
-    payload: Required<IEditorData>
-  ): Required<IEditorData> {
-    const editorDataKeys: (keyof IEditorData)[] = ['header', 'main', 'footer']
-    editorDataKeys.forEach(key => {
-      payload[key] = payload[key].filter(element => {
-        if (element.type !== ElementType.CONTROL) return true
-        return (
-          element.controlComponent !== ControlComponent.PREFIX &&
-          element.controlComponent !== ControlComponent.POSTFIX &&
-          element.controlComponent !== ControlComponent.PLACEHOLDER
-        )
-      })
+  public filterAssistElement(elementList: IElement[]): IElement[] {
+    return elementList.filter(element => {
+      if (element.type === ElementType.TABLE) {
+        const trList = element.trList!
+        for (let r = 0; r < trList.length; r++) {
+          const tr = trList[r]
+          for (let d = 0; d < tr.tdList.length; d++) {
+            const td = tr.tdList[d]
+            td.value = this.filterAssistElement(td.value)
+          }
+        }
+      }
+      if (!element.controlId || element.control?.minWidth) {
+        return true
+      }
+      return (
+        element.controlComponent !== ControlComponent.PREFIX &&
+        element.controlComponent !== ControlComponent.POSTFIX &&
+        element.controlComponent !== ControlComponent.PLACEHOLDER
+      )
     })
-    return payload
   }
 
   // 判断选区部分在控件边界外
@@ -76,8 +87,7 @@ export class Control {
     const startElement = elementList[startIndex]
     const endElement = elementList[endIndex]
     if (
-      (startElement.type === ElementType.CONTROL ||
-        endElement.type === ElementType.CONTROL) &&
+      startElement.controlId &&
       startElement.controlId !== endElement.controlId
     ) {
       return true
@@ -103,10 +113,9 @@ export class Control {
     const startElement = elementList[startIndex]
     const endElement = elementList[endIndex]
     if (
-      (startElement.type === ElementType.CONTROL ||
-        endElement.type === ElementType.CONTROL) &&
-      endElement.controlComponent !== ControlComponent.POSTFIX &&
-      startElement.controlId === endElement.controlId
+      startElement.controlId &&
+      startElement.controlId === endElement.controlId &&
+      endElement.controlComponent !== ControlComponent.POSTFIX
     ) {
       return true
     }
@@ -293,9 +302,14 @@ export class Control {
     }
   }
 
-  public removeControl(startIndex: number): number {
-    const elementList = this.getElementList()
+  public removeControl(
+    startIndex: number,
+    context: IControlContext = {}
+  ): number | null {
+    const elementList = context.elementList || this.getElementList()
     const startElement = elementList[startIndex]
+    const { deletable = true } = startElement.control!
+    if (!deletable) return null
     let leftIndex = -1
     let rightIndex = -1
     // 向左查找
@@ -333,8 +347,8 @@ export class Control {
     return leftIndex
   }
 
-  public removePlaceholder(startIndex: number) {
-    const elementList = this.getElementList()
+  public removePlaceholder(startIndex: number, context: IControlContext = {}) {
+    const elementList = context.elementList || this.getElementList()
     const startElement = elementList[startIndex]
     const nextElement = elementList[startIndex + 1]
     if (
@@ -354,8 +368,8 @@ export class Control {
     }
   }
 
-  public addPlaceholder(startIndex: number) {
-    const elementList = this.getElementList()
+  public addPlaceholder(startIndex: number, context: IControlContext = {}) {
+    const elementList = context.elementList || this.getElementList()
     const startElement = elementList[startIndex]
     const control = startElement.control!
     if (!control.placeholder) return
@@ -387,7 +401,7 @@ export class Control {
     return this.activeControl.setValue(data)
   }
 
-  public keydown(evt: KeyboardEvent): number {
+  public keydown(evt: KeyboardEvent): number | null {
     if (!this.activeControl) {
       throw new Error('active control is null')
     }
@@ -399,5 +413,220 @@ export class Control {
       throw new Error('active control is null')
     }
     return this.activeControl.cut()
+  }
+
+  public getValueByConceptId(
+    payload: IGetControlValueOption
+  ): IGetControlValueResult {
+    const { conceptId } = payload
+    const result: IGetControlValueResult = []
+    const getValue = (elementList: IElement[]) => {
+      let i = 0
+      while (i < elementList.length) {
+        const element = elementList[i]
+        i++
+        // 表格下钻处理
+        if (element.type === ElementType.TABLE) {
+          const trList = element.trList!
+          for (let r = 0; r < trList.length; r++) {
+            const tr = trList[r]
+            for (let d = 0; d < tr.tdList.length; d++) {
+              const td = tr.tdList[d]
+              getValue(td.value)
+            }
+          }
+        }
+        if (element?.control?.conceptId !== conceptId) continue
+        const { type, code, valueSets } = element.control!
+        let j = i
+        let textControlValue = ''
+        while (j < elementList.length) {
+          const nextElement = elementList[j]
+          if (nextElement.controlId !== element.controlId) break
+          if (
+            type === ControlType.TEXT &&
+            nextElement.controlComponent === ControlComponent.VALUE
+          ) {
+            textControlValue += nextElement.value
+          }
+          j++
+        }
+        if (type === ControlType.TEXT) {
+          result.push({
+            ...element.control,
+            value: textControlValue || null,
+            innerText: textControlValue || null
+          })
+        } else if (
+          type === ControlType.SELECT ||
+          type === ControlType.CHECKBOX
+        ) {
+          const innerText = code
+            ?.split(',')
+            .map(
+              selectCode =>
+                valueSets?.find(valueSet => valueSet.code === selectCode)?.value
+            )
+            .filter(Boolean)
+            .join('')
+          result.push({
+            ...element.control,
+            value: code || null,
+            innerText: innerText || null
+          })
+        }
+        i = j
+      }
+    }
+    const elementList = [
+      ...this.draw.getHeaderElementList(),
+      ...this.draw.getOriginalMainElementList(),
+      ...this.draw.getFooterElementList()
+    ]
+    getValue(elementList)
+    return result
+  }
+
+  public setValueByConceptId(payload: ISetControlValueOption) {
+    const isReadonly = this.draw.isReadonly()
+    if (isReadonly) return
+    let isExistSet = false
+    const { conceptId, value } = payload
+    // 设置值
+    const setValue = (elementList: IElement[]) => {
+      let i = 0
+      while (i < elementList.length) {
+        const element = elementList[i]
+        i++
+        // 表格下钻处理
+        if (element.type === ElementType.TABLE) {
+          const trList = element.trList!
+          for (let r = 0; r < trList.length; r++) {
+            const tr = trList[r]
+            for (let d = 0; d < tr.tdList.length; d++) {
+              const td = tr.tdList[d]
+              setValue(td.value)
+            }
+          }
+        }
+        if (element?.control?.conceptId !== conceptId) continue
+        isExistSet = true
+        const { type } = element.control!
+        // 当前控件结束索引
+        let currentEndIndex = i
+        while (currentEndIndex < elementList.length) {
+          const nextElement = elementList[currentEndIndex]
+          if (nextElement.controlId !== element.controlId) break
+          currentEndIndex++
+        }
+        // 模拟光标选区上下文
+        const fakeRange = {
+          startIndex: i - 1,
+          endIndex: currentEndIndex - 2
+        }
+        const controlContext: IControlContext = {
+          range: fakeRange,
+          elementList
+        }
+        if (type === ControlType.TEXT) {
+          const formatValue = [{ value }]
+          formatElementList(formatValue, {
+            isHandleFirstElement: false,
+            editorOptions: this.draw.getOptions()
+          })
+          const text = new TextControl(element, this)
+          if (value) {
+            text.setValue(formatValue, controlContext)
+          } else {
+            text.clearValue(controlContext)
+          }
+        } else if (type === ControlType.SELECT) {
+          const select = new SelectControl(element, this)
+          if (value) {
+            select.setSelect(value, controlContext)
+          } else {
+            select.clearSelect(controlContext)
+          }
+        } else if (type === ControlType.CHECKBOX) {
+          const checkbox = new CheckboxControl(element, this)
+          const checkboxElementList = elementList.slice(
+            fakeRange.startIndex + 1,
+            fakeRange.endIndex + 1
+          )
+          const codes = value?.split(',') || []
+          for (const checkElement of checkboxElementList) {
+            if (checkElement.controlComponent === ControlComponent.CHECKBOX) {
+              const checkboxItem = checkElement.checkbox!
+              checkboxItem.value = codes.includes(checkboxItem.code!)
+            }
+          }
+          checkbox.setSelect(controlContext)
+        }
+        // 修改后控件结束索引
+        let newEndIndex = i
+        while (newEndIndex < elementList.length) {
+          const nextElement = elementList[newEndIndex]
+          if (nextElement.controlId !== element.controlId) break
+          newEndIndex++
+        }
+        i = newEndIndex
+      }
+    }
+    // 页眉、内容区、页脚同时处理
+    const data = [
+      this.draw.getHeaderElementList(),
+      this.draw.getOriginalMainElementList(),
+      this.draw.getFooterElementList()
+    ]
+    for (const elementList of data) {
+      setValue(elementList)
+    }
+    if (isExistSet) {
+      this.draw.render({
+        isSetCursor: false
+      })
+    }
+  }
+
+  public setExtensionByConceptId(payload: ISetControlExtensionOption) {
+    const isReadonly = this.draw.isReadonly()
+    if (isReadonly) return
+    const { conceptId, extension } = payload
+    const setExtension = (elementList: IElement[]) => {
+      let i = 0
+      while (i < elementList.length) {
+        const element = elementList[i]
+        i++
+        // 表格下钻处理
+        if (element.type === ElementType.TABLE) {
+          const trList = element.trList!
+          for (let r = 0; r < trList.length; r++) {
+            const tr = trList[r]
+            for (let d = 0; d < tr.tdList.length; d++) {
+              const td = tr.tdList[d]
+              setExtension(td.value)
+            }
+          }
+        }
+        if (element?.control?.conceptId !== conceptId) continue
+        element.control.extension = extension
+        // 修改后控件结束索引
+        let newEndIndex = i
+        while (newEndIndex < elementList.length) {
+          const nextElement = elementList[newEndIndex]
+          if (nextElement.controlId !== element.controlId) break
+          newEndIndex++
+        }
+        i = newEndIndex
+      }
+    }
+    const data = [
+      this.draw.getHeaderElementList(),
+      this.draw.getOriginalMainElementList(),
+      this.draw.getFooterElementList()
+    ]
+    for (const elementList of data) {
+      setExtension(elementList)
+    }
   }
 }

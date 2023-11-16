@@ -54,6 +54,8 @@ interface IElement {
       rowspan: number;
       verticalAlign?: VerticalAlign;
       backgroundColor?: string;
+      borderType?: TdBorder;
+      slashType?: TdSlash;
       value: IElement[];
     }[];
   }[];
@@ -76,6 +78,10 @@ interface IElement {
     conceptId?: string;
     prefix?: string;
     postfix?: string;
+    minWidth?: number;
+    underline?: boolean;
+    extension?: unknown;
+    deletable?: boolean;
     code: string | null;
     min?: number;
     max?: number;
